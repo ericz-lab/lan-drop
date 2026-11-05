@@ -1,0 +1,28 @@
+# ai-space app manifest. Contract: ai-space docs/app-spec.md (spec 1).
+
+spec: 1
+name: lan-drop
+title: LAN Drop
+description: Send files and text between phones and computers on the same Wi-Fi. Open the page on each device (or scan its QR code); devices see each other at once, and every transfer waits for the receiver to accept.
+icon: icon.svg
+url: /?lang={lang}
+status: active
+i18n:
+  zh:
+    title: 局域网快传
+    description: 在同一个 Wi-Fi 里的手机和电脑之间互传文件和文字。每台设备打开这个页面（或扫二维码），就能互相看到；每次发送都要对方点"接收"。
+
+# Unlike other apps, this one listens on every interface (LANDROP_HOST, default 0.0.0.0), so
+# devices on the local network reach it directly at http://<lan ip>:<port>/ without the space's
+# router. It answers only loopback and private (LAN) addresses.
+service:
+  command: bun src/index.ts
+  port: 9110
+  health: /healthz
+  env:
+    NODE_ENV: "production"
+
+# `space app deploy` (the post-receive hook) runs these after checkout, after bun install
+# --frozen-lockfile; a failure keeps the running service (ai-space docs/app-spec.md#deploy).
+deploy:
+  check: [bun run typecheck, bun test]

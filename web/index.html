@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>局域网快传</title>
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<!-- Theme and language before the first paint, so neither flashes. -->
+<script>(function(){var d=document.documentElement,q=new URLSearchParams(location.search);var g=function(k){try{return localStorage.getItem(k)}catch(e){return null}};var t=q.get("theme")||g("lan-drop.theme");if(t==="light"||t==="dark")d.setAttribute("data-theme",t);var l=q.get("lang")||g("lan-drop.lang")||((navigator.languages||[navigator.language]).find(function(x){return /^(zh|en)/i.test(x)})||"en");d.lang=/^zh/i.test(l)?"zh-CN":"en"})()</script>
+<link rel="stylesheet" href="./styles.css">
+<!-- ai-space usage heartbeat (docs/usage.md); added at runtime so Bun's HTML bundler leaves it alone. Only answers through the space's router. -->
+<script>(function(){var s=document.createElement("script");s.src="/_space/usage.js";s.defer=true;document.head.appendChild(s)})()</script>
+<!-- ai-space feedback button (docs/feedback.md); shows only when Settings → Feedback turns it on for this app -->
+<script>(function(){var s=document.createElement("script");s.src="/_space/feedback.js";s.defer=true;document.head.appendChild(s)})()</script>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2.5" /><path d="M11 18.5h2" /></symbol>
+  <symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="11" rx="1.5" /><path d="M2 19h20" /></symbol>
+  <symbol id="i-tablet" viewBox="0 0 24 24"><rect x="4.5" y="3" width="15" height="18" rx="2" /><path d="M11 18h2" /></symbol>
+  <symbol id="i-desktop" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1.5" /><path d="M9 20h6M12 16v4" /></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4" /></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" /></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" /></symbol>
+  <symbol id="i-text" viewBox="0 0 24 24"><path d="M4 5h16v11H10l-5 4v-4H4z" /><path d="M8 9h8M8 12.5h5" /></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M7 17 17 7M9 7h8v8" /></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M17 7 7 17M15 17H7V9" /></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" /><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" /></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z" /></symbol>
+  <symbol id="i-system" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor" /></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></symbol>
+  <symbol id="i-retry" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3" /><path d="M18 3v4h-4M6 21v-4h4" /></symbol>
+  <symbol id="i-offline" viewBox="0 0 24 24"><path d="M3 3l18 18M8.5 16a5 5 0 0 1 7 0M5 12.5a10 10 0 0 1 4.5-2.4M14.5 10.1A10 10 0 0 1 19 12.5M2 9a14 14 0 0 1 4-2.4M11 5.1A14 14 0 0 1 22 9" /><circle cx="12" cy="19.5" r=".6" fill="currentColor" /></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14" /></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" /></symbol>
+</svg>
+
+<header class="topbar">
+  <div class="brand"><span class="mark" aria-hidden="true"><span></span><span></span></span><span data-i18n="appName">局域网快传</span></div>
+  <div class="me" id="me" hidden>
+    <span class="me-label" data-i18n="meLabel">本机</span>
+    <span class="me-name" id="meName"></span>
+    <span class="me-os" id="meOs"></span>
+    <button class="btn btn-ghost btn-sm btn-icon" id="renameBtn" type="button" data-i18n-label="rename"><svg class="ico"><use href="#i-pencil" /></svg></button>
+    <form class="me-form" id="renameForm" hidden>
+      <input id="renameInput" maxlength="40" autocomplete="off" data-i18n-label="rename">
+      <button class="btn btn-ghost btn-sm btn-icon" type="submit" data-i18n-label="renameSave"><svg class="ico"><use href="#i-check" /></svg></button>
+    </form>
+  </div>
+  <p class="conn" id="conn"><span class="dot wait" id="connDot"></span><span id="connWord" data-i18n="conn_wait">正在连接…</span></p>
+  <div class="tools">
+    <div class="seg" role="group" id="langSeg" data-i18n-label="langLabel">
+      <button type="button" data-lang="zh" aria-pressed="false" lang="zh">中</button>
+      <button type="button" data-lang="en" aria-pressed="false" lang="en">EN</button>
+    </div>
+    <button class="btn btn-ghost btn-sm theme-btn" id="themeBtn" type="button"><svg class="ico"><use id="themeIco" href="#i-system" /></svg><span class="lbl" id="themeWord"></span></button>
+  </div>
+</header>
+
+<main id="main">
+<div class="shell" id="shell" data-view="loading">
+  <div class="head">
+    <div class="head-title">
+      <h1 id="h1" data-i18n="h1">发给哪台设备</h1>
+      <p class="count" id="count" hidden><span class="dot"></span><span id="countWord"></span></p>
+    </div>
+    <button class="btn btn-primary" id="chooseBtn" type="button"><svg class="ico"><use href="#i-plus" /></svg><span data-i18n="chooseFiles">选择文件</span></button>
+    <input type="file" id="filePick" multiple hidden data-i18n-label="chooseFilesLabel">
+  </div>
+
+  <details class="join" id="join">
+    <summary><span class="plus" aria-hidden="true"><svg class="ico"><use href="#i-plus" /></svg></span><span data-i18n="addDevice">添加设备</span><svg class="ico chev" aria-hidden="true"><use href="#i-chev" /></svg></summary>
+    <div class="join-body">
+      <h2 data-i18n="joinTitle">从其他设备加入</h2>
+      <p class="muted" data-i18n="joinHint"></p>
+      <div class="qr-well" data-qr></div>
+      <div class="addr" data-addr></div>
+    </div>
+  </details>
+  <script>if(window.matchMedia&&window.matchMedia('(min-width: 720px)').matches)document.getElementById('join').open=true;</script>
+
+  <section class="devices" id="devices" aria-labelledby="h1">
+    <div id="incoming"></div>
+    <div class="pickbar" id="pickbar" hidden>
+      <p id="pickWord"></p>
+      <button class="btn btn-ghost btn-sm" type="button" id="pickCancel" data-i18n="cancel">取消</button>
+    </div>
+
+    <div data-view-part="filled"><ul class="grid" id="grid"></ul></div>
+
+    <div data-view-part="loading" aria-busy="true">
+      <p class="status-line"><span class="dot wait"></span><span data-i18n="connectingRoom">正在连接…</span></p>
+      <ul class="grid" aria-hidden="true">
+        <li class="sk-tile"><span class="sk sk-circle"></span><span class="sk" style="width:70%"></span><span class="sk" style="width:40%"></span></li>
+        <li class="sk-tile"><span class="sk sk-circle"></span><span class="sk" style="width:60%"></span><span class="sk" style="width:35%"></span></li>
+        <li class="sk-tile"><span class="sk sk-circle"></span><span class="sk" style="width:75%"></span><span class="sk" style="width:45%"></span></li>
+      </ul>
+    </div>
+
+    <div data-view-part="empty">
+      <div class="panel empty">
+        <div class="empty-text">
+          <h2 data-i18n="emptyTitle">还没有其他设备</h2>
+          <ol class="steps">
+            <li><span data-i18n="empty1"></span></li>
+            <li><span data-i18n="empty2"></span></li>
+            <li><span data-i18n="empty3"></span></li>
+          </ol>
+          <div class="addr" data-addr data-primary></div>
+        </div>
+        <div class="qr-well" data-qr></div>
+      </div>
+    </div>
+
+    <div data-view-part="error">
+      <div class="panel notice" role="alert">
+        <span class="notice-ico"><svg class="ico"><use href="#i-offline" /></svg></span>
+        <div class="notice-body">
+          <h2 data-i18n="errTitle">连接断开了</h2>
+          <p class="muted" data-i18n="errBody"></p>
+          <div class="row">
+            <p class="pill"><span class="dot wait"></span><span data-i18n="reconnecting"></span></p>
+            <button class="btn btn-secondary btn-sm" type="button" id="retryNow"><svg class="ico"><use href="#i-retry" /></svg><span data-i18n="retryNow"></span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div data-view-part="replaced">
+      <div class="panel notice" role="alert">
+        <span class="notice-ico"><svg class="ico"><use href="#i-copy" /></svg></span>
+        <div class="notice-body">
+          <h2 data-i18n="replacedTitle"></h2>
+          <p class="muted" data-i18n="replacedBody"></p>
+          <div class="row"><button class="btn btn-primary btn-sm" type="button" id="useHere" data-i18n="useHere"></button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="transfers" id="transfers" aria-labelledby="trTitle">
+    <div class="tr-head">
+      <h2 id="trTitle" data-i18n="trTitle">本次传输</h2>
+      <div class="seg" role="group" id="trFilter" data-i18n-label="trTitle">
+        <button type="button" data-filter="all" aria-pressed="true" data-i18n="f_all">全部</button>
+        <button type="button" data-filter="sent" aria-pressed="false" data-i18n="f_sent">发出</button>
+        <button type="button" data-filter="received" aria-pressed="false" data-i18n="f_received">收到</button>
+      </div>
+    </div>
+    <ul class="tr-list" id="trList"></ul>
+    <p class="inline-state muted" id="trEmpty"></p>
+  </section>
+</div>
+
+<section class="pinscreen" id="pinscreen" aria-labelledby="pinTitle" hidden>
+  <form class="pin-panel" id="pinForm" novalidate>
+    <span class="notice-ico" style="color:var(--ink-strong)"><svg class="ico"><use href="#i-lock" /></svg></span>
+    <h2 id="pinTitle" data-i18n="pinTitle"></h2>
+    <p class="muted" id="pinMsg" data-i18n="pinBody"></p>
+    <div class="pin-boxes" id="pinBoxes">
+      <input inputmode="numeric" maxlength="1" autocomplete="one-time-code" data-digit="1">
+      <input inputmode="numeric" maxlength="1" data-digit="2">
+      <input inputmode="numeric" maxlength="1" data-digit="3">
+      <input inputmode="numeric" maxlength="1" data-digit="4">
+    </div>
+    <button class="btn btn-primary" type="submit" data-i18n="joinRoom">加入</button>
+  </form>
+</section>
+</main>
+
+<dialog id="textDlg" aria-labelledby="dlgTitle">
+  <form class="dlg" method="dialog" id="textForm">
+    <h2 id="dlgTitle"></h2>
+    <div class="field"><label for="textBody" data-i18n="message">内容</label><textarea id="textBody" required maxlength="100000"></textarea></div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn btn-secondary" type="button" id="dlgCancel" data-i18n="cancel">取消</button>
+      <button class="btn btn-primary" type="submit" data-i18n="send">发送</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script type="module" src="./app.ts"></script>
+</body>
+</html>
