@@ -117,6 +117,7 @@ test("loopback needs no PIN; info says so", async () => {
   // Through the router the page learns the direct address and the instance a ping must match.
   expect(via.direct).toBe("https://lan.example.org:9111/");
   expect(info.direct).toBeNull();
+  expect([info.viaRouter, via.viaRouter]).toEqual([false, true]);
   const ping = await (await fetch(`${base}/api/ping`)).json();
   expect(ping.instance).toBe(via.instance);
 });

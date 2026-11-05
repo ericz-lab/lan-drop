@@ -112,6 +112,8 @@ const state = {
   joinUrls: [] as string[],
   lanUrls: [] as string[],
   home: true,
+  /** Opened through the space's router (the domain), not on a LAN address. */
+  viaRouter: false,
 };
 
 /** "Blue Fox · Linux" is shown as the name and the platform. */
@@ -472,7 +474,7 @@ function renderJoin(): void {
   // page may not send to a plain-http LAN address, so the page offers to move there instead.
   const lan = state.lanUrls[0];
   const alt = !!lan && state.home && url !== lan;
-  const viaDomain = !!lan && new URL(lan).origin !== location.origin;
+  const viaDomain = !!lan && state.viaRouter;
   // Bytes already go straight over the LAN: nothing to switch to.
   const direct = !!client.bytes;
   $("#lanBanner").hidden = direct || !(viaDomain && state.home);
@@ -947,6 +949,7 @@ for (const p of $$("[data-view-part]")) p.hidden = p.dataset.viewPart !== "loadi
     state.joinUrls = info.joinUrls ?? [];
     state.lanUrls = info.lanUrls ?? [];
     state.home = info.home !== false;
+    state.viaRouter = info.viaRouter === true;
     pinRequired = !!info.pinRequired;
   } catch {}
   // Through the space's router the page's own address is the one to share when no LAN address is known.

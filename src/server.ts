@@ -296,6 +296,7 @@ export function createApp(opts: Options) {
         lanUrls: joinUrls(opts.port, opts.publicUrl),
         pinRequired: pinRequired(ip),
         home: netOf(ip, req) === HOME,
+        viaRouter: !!host,
         // Only a page through the router needs it: on the LAN the page is direct already.
         direct: host && opts.directUrl ? opts.directUrl : null,
         instance,
