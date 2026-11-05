@@ -380,9 +380,13 @@ function renderJoin(): void {
   const key = `${lang}|${url ?? ""}`;
   if (key === joinKey) return;
   joinKey = key;
-  // Opened through the domain from home: the LAN address is faster and needs no sign-in.
+  // Opened through the domain from home: the LAN address is faster and needs no sign-in. An https
+  // page may not send to a plain-http LAN address, so the page offers to move there instead.
   const lan = state.lanUrls[0];
   const alt = !!lan && state.home && url !== lan;
+  const viaDomain = !!lan && new URL(lan).origin !== location.origin;
+  $("#lanBanner").hidden = !(viaDomain && state.home);
+  if (lan) $<HTMLAnchorElement>("#lanSwitch").href = `${lan}?lang=${lang}`;
   $("#lanAlt").hidden = !alt;
   if (alt) $("#lanAltUrl").textContent = lan.replace(/\/$/, "");
   for (const el of $$("[data-qr]")) el.innerHTML = url ? qrSvg(url) : `<p class="muted small">${esc(t("joinNoAddr"))}</p>`;
