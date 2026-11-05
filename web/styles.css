@@ -328,3 +328,5 @@ textarea:hover{border-color:var(--faint)}
 .lan-banner[hidden]{display:none}
 .lan-text{display:grid;gap:4px;max-width:62ch}
 .lan-text h2{font-size:var(--fs-body);font-weight:500}
+.tr-head .save-all{margin-left:auto}
+@media (max-width:719px){.tr-head .save-all{order:3;flex:1 1 100%}}

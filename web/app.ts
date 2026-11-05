@@ -281,7 +281,29 @@ function afterTransfer(tr: TransferView): void {
   }
 }
 
+/**
+ * Downloads go one at a time with a pause between them: a browser that is asked for several at
+ * once (files that finish together) cancels all but the last.
+ */
+const saveQueue: { url: string; name: string }[] = [];
+let saving = false;
 function save(url: string, name: string): void {
+  saveQueue.push({ url, name });
+  if (!saving) void drainSaves();
+}
+async function drainSaves(): Promise<void> {
+  saving = true;
+  while (saveQueue.length) {
+    const next = saveQueue.shift()!;
+    startDownload(next.url, next.name);
+    // Wait even when nothing is queued yet: the next file may finish a moment later.
+    await new Promise((r) => setTimeout(r, SAVE_GAP_MS));
+  }
+  saving = false;
+}
+const SAVE_GAP_MS = 900;
+
+function startDownload(url: string, name: string): void {
   const a = document.createElement("a");
   a.href = url;
   a.download = name;
@@ -504,7 +526,21 @@ function fileStatus(tr: TransferView, f: TransferView["files"][number], sent: bo
   return "queued";
 }
 
+/** Every received file that can be saved, oldest first. */
+function receivedReady(): { key: string; url: string; name: string }[] {
+  const out: { key: string; url: string; name: string; at: number }[] = [];
+  for (const tr of state.transfers.values()) {
+    if (tr.to !== ident.id) continue;
+    for (const f of tr.files) if (f.url) out.push({ key: `${tr.id}:${f.idx}`, url: f.url, name: f.name, at: tr.createdAt + f.idx / 1000 });
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
 function renderTransfers(): void {
+  const ready = receivedReady().length;
+  const all = $("#saveAll");
+  all.hidden = ready < 2;
+  $("#saveAllWord").textContent = t("saveAll", { n: ready });
   const rows: Row[] = [];
   for (const tr of state.transfers.values()) {
     const sent = tr.from === ident.id;
@@ -677,6 +713,13 @@ $("#transfers").addEventListener("click", (e) => {
   if (f) {
     state.filter = f.dataset.filter as typeof state.filter;
     renderTransfers();
+    return;
+  }
+  if (el.closest("#saveAll")) {
+    for (const f of receivedReady()) {
+      state.saved.add(f.key);
+      save(f.url, f.name);
+    }
     return;
   }
   const copyBtn = el.closest<HTMLElement>("[data-copy-text]");
