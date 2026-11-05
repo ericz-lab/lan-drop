@@ -1,6 +1,6 @@
 // The HTTP and WebSocket handlers: the room over a socket, uploads into the spool, downloads out.
 import type { Server, ServerWebSocket } from "bun";
-import { isLoopback, isPrivateOrLoopback, joinUrls } from "./net.ts";
+import { HOME, isLoopback, isPrivateOrLoopback, joinUrls, networkOf } from "./net.ts";
 import { Room, RoomError, type ServerMsg } from "./room.ts";
 import { Spool } from "./spool.ts";
 
@@ -11,11 +11,14 @@ export interface Options {
   pin?: string;
   /** Overrides the join URLs shown (comma-separated). */
   publicUrl?: string;
+  /** The host's own public addresses (src/net.ts egressKeys): devices behind them are home. */
+  homeKeys?: () => ReadonlySet<string>;
   now?: () => number;
 }
 
 interface SocketData {
   ip: string;
+  net: string;
   peer?: string;
   socket?: number;
 }
@@ -55,6 +58,8 @@ const STATUS: Record<string, number> = {
   not_accepted: 409,
   already_sent: 409,
   not_offered: 409,
+  not_uploading: 409,
+  not_same_network: 403,
 };
 
 function sameOrigin(req: Request): boolean {
@@ -81,7 +86,10 @@ export function createApp(opts: Options) {
   const gate = new PinGate(now);
   const pin = (opts.pin ?? "").trim();
 
+  const homeKeys = opts.homeKeys ?? (() => new Set<string>());
+  // Through the router (behind the space's login) the device is signed in; the PIN guards the LAN port.
   const pinRequired = (ip: string) => pin !== "" && !isLoopback(ip);
+  const netOf = (ip: string, req: Request) => networkOf(ip, req.headers, homeKeys());
 
   function peerOf(req: Request): string {
     return room.auth(req.headers.get("x-peer-id"), req.headers.get("x-peer-secret"));
@@ -93,30 +101,52 @@ export function createApp(opts: Options) {
     return fail("internal", 500);
   }
 
-  async function upload(req: Request, id: string, idxText: string): Promise<Response> {
+  /**
+   * One piece of a file. `offset=0` (or none) starts the file; later pieces continue it where the
+   * last one ended. Pieces keep each request under the 100 MB a Cloudflare tunnel allows.
+   */
+  async function upload(req: Request, id: string, idxText: string, offsetText: string | null): Promise<Response> {
     if (!sameOrigin(req)) return fail("forbidden", 403);
     const idx = Number(idxText);
+    const offset = Number(offsetText ?? 0);
+    if (!Number.isSafeInteger(offset) || offset < 0) return fail("bad_offset", 400);
     let file;
     try {
       const peer = peerOf(req);
       const t = room.get(id);
-      const f = t?.files[idx];
-      if (f && !(await spool.hasRoomFor(f.size))) return fail("disk_full", 507);
-      file = room.beginUpload(id, peer, idx);
+      if (!t) throw new RoomError("no_such_transfer");
+      if (t.from !== peer) throw new RoomError("forbidden");
+      const f = t.files[idx];
+      if (!f) throw new RoomError("no_such_file");
+      if (offset === 0) {
+        if (!(await spool.hasRoomFor(f.size))) return fail("disk_full", 507);
+        file = room.beginUpload(id, peer, idx);
+      } else {
+        if (t.state !== "accepted" || f.state !== "uploading") throw new RoomError("not_uploading");
+        file = f;
+      }
     } catch (e) {
       return roomError(e);
     }
     let last = 0;
+    let total: number;
     try {
-      await spool.write(id, idx, req.body, file.size, (n) => {
-        const t = now();
-        if (t - last >= 250) {
-          last = t;
-          room.progress(id, idx, n);
-        }
-      });
+      total = await spool.write(
+        id,
+        idx,
+        req.body,
+        file.size,
+        (n) => {
+          const t = now();
+          if (t - last >= 250) {
+            last = t;
+            room.progress(id, idx, n);
+          }
+        },
+        offset,
+      );
     } catch (e) {
-      const code = e instanceof Error && (e.message === "too_long" || e.message === "incomplete") ? e.message : "upload_failed";
+      const code = e instanceof Error && ["too_long", "bad_offset"].includes(e.message) ? e.message : "upload_failed";
       room.fileFailed(id, idx, code);
       return fail(code, 400);
     }
@@ -125,8 +155,9 @@ export function createApp(opts: Options) {
       await spool.remove(id, idx + 1);
       return fail("cancelled", 409);
     }
-    room.fileDone(id, idx);
-    return json({ ok: true });
+    if (total === file.size) room.fileDone(id, idx);
+    else room.progress(id, idx, total);
+    return json({ ok: true, received: total });
   }
 
   function download(key: string): Response {
@@ -163,7 +194,7 @@ export function createApp(opts: Options) {
           }
           gate.ok(ws.data.ip);
         }
-        const { peer, socket } = room.join(msg, send);
+        const { peer, socket } = room.join(msg, send, ws.data.net);
         ws.data.peer = peer.id;
         ws.data.socket = socket;
         return;
@@ -209,13 +240,22 @@ export function createApp(opts: Options) {
     if (path === "/healthz") return new Response("ok");
     if (path === "/api/ws") {
       if (!sameOrigin(req)) return fail("forbidden", 403);
-      return server.upgrade(req, { data: { ip } }) ? undefined : fail("upgrade_failed", 400);
+      return server.upgrade(req, { data: { ip, net: netOf(ip, req) } }) ? undefined : fail("upgrade_failed", 400);
     }
     if (path === "/api/info" && req.method === "GET") {
-      return json({ joinUrls: joinUrls(opts.port, opts.publicUrl), pinRequired: pinRequired(ip) });
+      // Through the router the page's own address is the one to share: it works from any network.
+      const host = isLoopback(ip) ? req.headers.get("x-forwarded-host") : null;
+      // The router itself speaks plain http behind the TLS tunnel; the public name is https.
+      const viaDomain = host ? [`https://${host}/`] : [];
+      return json({
+        joinUrls: [...viaDomain, ...joinUrls(opts.port, opts.publicUrl)],
+        lanUrls: joinUrls(opts.port, opts.publicUrl),
+        pinRequired: pinRequired(ip),
+        home: netOf(ip, req) === HOME,
+      });
     }
     let m = path.match(/^\/api\/transfers\/([a-f0-9]+)\/files\/(\d+)$/);
-    if (m && (req.method === "PUT" || req.method === "POST")) return upload(req, m[1]!, m[2]!);
+    if (m && (req.method === "PUT" || req.method === "POST")) return upload(req, m[1]!, m[2]!, url.searchParams.get("offset"));
     m = path.match(/^\/api\/download\/([a-f0-9]+)(?:\/.*)?$/);
     if (m && req.method === "GET") return download(m[1]!);
     return undefined;

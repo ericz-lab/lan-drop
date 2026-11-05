@@ -73,6 +73,8 @@ interface Peer {
   secret: string;
   name: string;
   kind: DeviceKind;
+  /** The network the device is on (src/net.ts networkOf); only devices on one network see each other. */
+  net: string;
   send?: (msg: ServerMsg) => void;
   socket?: number;
   leftAt?: number;
@@ -118,6 +120,7 @@ export class Room {
   join(
     hello: { id?: unknown; secret?: unknown; name?: unknown; kind?: unknown },
     send: (msg: ServerMsg) => void,
+    net = "home",
   ): { peer: PeerView; socket: number } {
     const id = typeof hello.id === "string" && /^[a-zA-Z0-9_-]{8,64}$/.test(hello.id) ? hello.id : null;
     const secret = typeof hello.secret === "string" && hello.secret.length >= 16 ? hello.secret : null;
@@ -127,11 +130,12 @@ export class Room {
     let peer = this.peers.get(id);
     if (peer && peer.secret !== secret) throw new RoomError("bad_secret");
     if (!peer) {
-      peer = { id, secret, name, kind };
+      peer = { id, secret, name, kind, net };
       this.peers.set(id, peer);
     } else {
       peer.name = name;
       peer.kind = kind;
+      peer.net = net;
       if (peer.send) peer.send({ type: "replaced" });
     }
     peer.send = send;
@@ -140,7 +144,7 @@ export class Room {
     send({
       type: "welcome",
       self: this.view(peer),
-      peers: this.peerViews(id),
+      peers: this.peerViews(id, net),
       transfers: this.transfersOf(id).map((t) => this.transferView(t, id)),
     });
     this.broadcastPeers();
@@ -172,9 +176,10 @@ export class Room {
   }
 
   offer(from: string, to: string, files: OfferFile[]): Transfer {
-    this.mustPeer(from);
+    const sender = this.mustPeer(from);
     const target = this.peers.get(to);
     if (!target || to === from) throw new RoomError("no_such_device");
+    if (target.net !== sender.net) throw new RoomError("not_same_network");
     if (!target.send) throw new RoomError("device_offline");
     if (!Array.isArray(files) || files.length === 0 || files.length > LIMITS.filesPerOffer) throw new RoomError("bad_files");
     const entries: FileEntry[] = files.map((f, idx) => {
@@ -224,7 +229,8 @@ export class Room {
     if (t.state !== "accepted") throw new RoomError("not_accepted");
     const f = t.files[idx];
     if (!f) throw new RoomError("no_such_file");
-    if (f.state === "ready" || f.state === "uploading") throw new RoomError("already_sent");
+    // Starting again over a piece-by-piece upload is the sender's own retry.
+    if (f.state === "ready") throw new RoomError("already_sent");
     f.state = "uploading";
     f.received = 0;
     this.emit(t);
@@ -271,9 +277,10 @@ export class Room {
   }
 
   text(from: string, to: string, text: unknown): { id: string; at: number } {
-    this.mustPeer(from);
+    const sender = this.mustPeer(from);
     const target = this.peers.get(to);
     if (!target || to === from) throw new RoomError("no_such_device");
+    if (target.net !== sender.net) throw new RoomError("not_same_network");
     if (!target.send) throw new RoomError("device_offline");
     if (typeof text !== "string" || !text.trim() || text.length > LIMITS.textChars) throw new RoomError("bad_text");
     const msg = { type: "text" as const, id: randomId(8), from, to, text, at: this.now() };
@@ -314,10 +321,11 @@ export class Room {
     return this.transfers.get(id);
   }
 
-  peerViews(except?: string): PeerView[] {
+  /** The devices on network `net` (every network when omitted), without `except`. */
+  peerViews(except?: string, net?: string): PeerView[] {
     const now = this.now();
     return [...this.peers.values()]
-      .filter((p) => p.id !== except && (p.send || (p.leftAt !== undefined && now - p.leftAt <= LIMITS.offlineMs)))
+      .filter((p) => p.id !== except && (net === undefined || p.net === net) && (p.send || (p.leftAt !== undefined && now - p.leftAt <= LIMITS.offlineMs)))
       .map((p) => this.view(p))
       .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name));
   }
@@ -353,7 +361,7 @@ export class Room {
   }
 
   private broadcastPeers(): void {
-    for (const p of this.peers.values()) p.send?.({ type: "peers", peers: this.peerViews(p.id) });
+    for (const p of this.peers.values()) p.send?.({ type: "peers", peers: this.peerViews(p.id, p.net) });
   }
 
   private mustPeer(id: string): Peer {

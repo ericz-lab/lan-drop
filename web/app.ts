@@ -109,6 +109,8 @@ const state = {
   filter: "all" as "all" | "sent" | "received",
   view: "loading" as "loading" | "filled" | "empty" | "error" | "replaced" | "pin",
   joinUrls: [] as string[],
+  lanUrls: [] as string[],
+  home: true,
 };
 
 /** "Blue Fox · Linux" is shown as the name and the platform. */
@@ -378,6 +380,11 @@ function renderJoin(): void {
   const key = `${lang}|${url ?? ""}`;
   if (key === joinKey) return;
   joinKey = key;
+  // Opened through the domain from home: the LAN address is faster and needs no sign-in.
+  const lan = state.lanUrls[0];
+  const alt = !!lan && state.home && url !== lan;
+  $("#lanAlt").hidden = !alt;
+  if (alt) $("#lanAltUrl").textContent = lan.replace(/\/$/, "");
   for (const el of $$("[data-qr]")) el.innerHTML = url ? qrSvg(url) : `<p class="muted small">${esc(t("joinNoAddr"))}</p>`;
   for (const el of $$("[data-addr]")) {
     el.hidden = !url;
@@ -819,6 +826,8 @@ for (const p of $$("[data-view-part]")) p.hidden = p.dataset.viewPart !== "loadi
   try {
     const info = await (await fetch("api/info", { cache: "no-store" })).json();
     state.joinUrls = info.joinUrls ?? [];
+    state.lanUrls = info.lanUrls ?? [];
+    state.home = info.home !== false;
     pinRequired = !!info.pinRequired;
   } catch {}
   // Through the space's router the page's own address is the one to share when no LAN address is known.

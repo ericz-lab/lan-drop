@@ -147,26 +147,50 @@ export class Client {
     return this.send({ type: "text", to, text });
   }
 
-  /** Uploads one file; XHR because fetch reports no upload progress. */
+  /**
+   * Uploads one file in pieces of at most PIECE bytes (a Cloudflare tunnel refuses a request over
+   * 100 MB), each continuing where the last ended. XHR because fetch reports no upload progress.
+   */
   upload(transferId: string, idx: number, file: File, progress: (sent: number) => void): { done: Promise<void>; abort(): void } {
-    const xhr = new XMLHttpRequest();
-    const done = new Promise<void>((res, rej) => {
-      xhr.open("PUT", new URL(`api/transfers/${transferId}/files/${idx}`, location.href));
-      xhr.setRequestHeader("x-peer-id", this.ident.id);
-      xhr.setRequestHeader("x-peer-secret", this.ident.secret);
-      xhr.upload.onprogress = (e) => progress(e.loaded);
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) return res();
-        let code = `http_${xhr.status}`;
-        try {
-          code = JSON.parse(xhr.responseText).error ?? code;
-        } catch {}
-        rej(new Error(code));
-      };
-      xhr.onerror = () => rej(new Error("network"));
-      xhr.onabort = () => rej(new Error("aborted"));
-      xhr.send(file);
-    });
-    return { done, abort: () => xhr.abort() };
+    let xhr: XMLHttpRequest | null = null;
+    let aborted = false;
+    const piece = (offset: number, blob: Blob) =>
+      new Promise<number>((res, rej) => {
+        const x = new XMLHttpRequest();
+        xhr = x;
+        x.open("PUT", new URL(`api/transfers/${transferId}/files/${idx}?offset=${offset}`, location.href));
+        x.setRequestHeader("x-peer-id", this.ident.id);
+        x.setRequestHeader("x-peer-secret", this.ident.secret);
+        x.upload.onprogress = (e) => progress(offset + e.loaded);
+        x.onload = () => {
+          let body: { error?: string; received?: number } = {};
+          try {
+            body = JSON.parse(x.responseText);
+          } catch {}
+          if (x.status >= 200 && x.status < 300) return res(body.received ?? offset + blob.size);
+          rej(new Error(body.error ?? `http_${x.status}`));
+        };
+        x.onerror = () => rej(new Error("network"));
+        x.onabort = () => rej(new Error("aborted"));
+        x.send(blob);
+      });
+    const done = (async () => {
+      let offset = 0;
+      do {
+        if (aborted) throw new Error("aborted");
+        const end = Math.min(file.size, offset + PIECE);
+        offset = await piece(offset, file.slice(offset, end));
+      } while (offset < file.size);
+    })();
+    return {
+      done,
+      abort: () => {
+        aborted = true;
+        xhr?.abort();
+      },
+    };
   }
 }
+
+/** Bytes per upload request. */
+export const PIECE = 64 * 1024 * 1024;

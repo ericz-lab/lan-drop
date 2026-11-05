@@ -1,5 +1,5 @@
 // Where uploaded bytes wait for the receiver: one file per transfer file under the data directory.
-import { mkdir, rm, statfs } from "node:fs/promises";
+import { mkdir, open, rm, stat, statfs } from "node:fs/promises";
 import { join } from "node:path";
 
 export class Spool {
@@ -29,8 +29,10 @@ export class Spool {
   }
 
   /**
-   * Writes a request body to the transfer file. Rejects when the body is longer or shorter than
-   * `size`, removing what was written. `onProgress` gets the byte count as it grows.
+   * Writes one piece of a file: the request body goes at byte `offset` of the transfer file, which
+   * must already hold exactly `offset` bytes (0 starts the file over). Rejects a body that would make
+   * the file longer than `size`, and on any failure cuts the file back to `offset`, so the sender can
+   * send the same piece again. `onProgress` gets the file's length as it grows. Returns the length.
    */
   async write(
     transferId: string,
@@ -38,34 +40,37 @@ export class Spool {
     body: ReadableStream<Uint8Array> | null,
     size: number,
     onProgress: (received: number) => void,
-  ): Promise<void> {
+    offset = 0,
+  ): Promise<number> {
     const path = this.path(transferId, idx);
-    const writer = Bun.file(path).writer({ highWaterMark: 1024 * 1024 });
-    let received = 0;
+    if (offset > 0) {
+      const have = await stat(path).then((s) => s.size, () => -1);
+      if (have !== offset) throw new Error("bad_offset");
+    }
+    const fh = await open(path, offset === 0 ? "w" : "r+");
+    let pos = offset;
     try {
       if (body) {
         const reader = body.getReader();
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
-          received += value.byteLength;
-          if (received > size) {
+          if (pos + value.byteLength > size) {
             await reader.cancel().catch(() => {});
             throw new Error("too_long");
           }
-          writer.write(value);
-          await writer.flush();
-          onProgress(received);
+          let w = 0;
+          while (w < value.byteLength) w += (await fh.write(value, w, value.byteLength - w, pos + w)).bytesWritten;
+          pos += value.byteLength;
+          onProgress(pos);
         }
       }
-      await writer.end();
-      if (received !== size) throw new Error("incomplete");
+      return pos;
     } catch (e) {
-      try {
-        await writer.end();
-      } catch {}
-      await rm(path, { force: true });
+      await fh.truncate(offset).catch(() => {});
       throw e;
+    } finally {
+      await fh.close();
     }
   }
 

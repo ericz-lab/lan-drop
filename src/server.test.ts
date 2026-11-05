@@ -73,8 +73,16 @@ test("send a file from one device to another", async () => {
 
   // Wrong credentials, then a body of the wrong length, then the real upload.
   expect((await fetch(`${base}/api/transfers/${id}/files/0`, { method: "PUT", headers: { ...headers, "x-peer-secret": "nope" }, body })).status).toBe(401);
-  expect((await fetch(`${base}/api/transfers/${id}/files/0`, { method: "PUT", headers, body: body.slice(0, 3) })).status).toBe(400);
-  const up = await fetch(`${base}/api/transfers/${id}/files/0`, { method: "PUT", headers, body });
+  // Too long is refused; then the file goes in two pieces, the second at the first one's end.
+  const tooLong = new Uint8Array(body.byteLength + 1);
+  expect((await fetch(`${base}/api/transfers/${id}/files/0`, { method: "PUT", headers, body: tooLong })).status).toBe(400);
+  expect((await fetch(`${base}/api/transfers/${id}/files/0?offset=5`, { method: "PUT", headers, body: body.slice(5) })).status).toBe(409);
+  const first = await fetch(`${base}/api/transfers/${id}/files/0?offset=0`, { method: "PUT", headers, body: body.slice(0, 5) });
+  expect(await first.json()).toEqual({ ok: true, received: 5 });
+  expect((await fetch(`${base}/api/transfers/${id}/files/0?offset=4`, { method: "PUT", headers, body: body.slice(4) })).status).toBe(400);
+  const again = await fetch(`${base}/api/transfers/${id}/files/0?offset=0`, { method: "PUT", headers, body: body.slice(0, 5) });
+  expect(again.status).toBe(200);
+  const up = await fetch(`${base}/api/transfers/${id}/files/0?offset=5`, { method: "PUT", headers, body: body.slice(5) });
   expect(up.status).toBe(200);
 
   const done = await b.next((m) => m.type === "transfer" && m.transfer.state === "done");
@@ -96,6 +104,10 @@ test("a socket from another site is refused", async () => {
 test("loopback needs no PIN; info says so", async () => {
   const info = await (await fetch(`${base}/api/info`)).json();
   expect(info.pinRequired).toBe(false);
+  expect(info.home).toBe(true);
+  const via = await (await fetch(`${base}/api/info`, { headers: { "x-forwarded-host": "lan-drop.example.org", "cf-connecting-ip": "203.0.113.9" } })).json();
+  expect(via.joinUrls[0]).toBe("https://lan-drop.example.org/");
+  expect(via.home).toBe(false);
 });
 
 test("contentDisposition keeps an ASCII fallback", () => {

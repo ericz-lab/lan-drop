@@ -65,3 +65,46 @@ export function joinUrls(port: number, override?: string, ifaces = networkInterf
   if (override) return override.split(",").map((s) => s.trim()).filter(Boolean);
   return lanAddresses(ifaces).map((a) => `http://${a.address}:${port}/`);
 }
+
+/** The network a device is on: "home" for the host's own LAN, else one key per public address. */
+export const HOME = "home";
+
+/** An IPv6 address's /64 prefix (one home network), an IPv4 address as it is. */
+export function publicKey(ip: string): string {
+  const a = normalizeIp(ip);
+  if (!a.includes(":")) return a;
+  // Expand "::" so the first four groups are the prefix.
+  const [head = "", tail = ""] = a.split("::");
+  const h = head ? head.split(":") : [];
+  const t = a.includes("::") ? (tail ? tail.split(":") : []) : [];
+  const groups = a.includes("::") ? [...h, ...Array(8 - h.length - t.length).fill("0"), ...t] : h;
+  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":") + "::/64";
+}
+
+/**
+ * Which network a request is from. A direct connection from a private address is the host's LAN.
+ * Through the space's router (the TCP peer is loopback), Cloudflare's `Cf-Connecting-IP` names the
+ * device's public address: the host's own egress address counts as home, any other address is its
+ * own network. Only the loopback peer's header is trusted; a LAN device cannot claim another network.
+ */
+export function networkOf(peerIp: string, headers: Headers, homeKeys: ReadonlySet<string>): string {
+  if (!isLoopback(peerIp)) return HOME;
+  const forwarded = headers.get("cf-connecting-ip")?.trim();
+  if (!forwarded) return HOME;
+  if (isPrivateOrLoopback(forwarded)) return HOME;
+  const key = publicKey(forwarded);
+  return homeKeys.has(key) ? HOME : `net:${key}`;
+}
+
+/** The host's own public addresses, as Cloudflare sees them, plus LANDROP_HOME_IPS. */
+export async function egressKeys(extra = "", fetcher: typeof fetch = fetch): Promise<Set<string>> {
+  const keys = new Set(extra.split(",").map((s) => s.trim()).filter(Boolean).map(publicKey));
+  for (const url of ["https://1.1.1.1/cdn-cgi/trace", "https://[2606:4700:4700::1111]/cdn-cgi/trace"]) {
+    try {
+      const res = await fetcher(url, { signal: AbortSignal.timeout(5000) });
+      const ip = (await res.text()).match(/^ip=(.+)$/m)?.[1];
+      if (ip) keys.add(publicKey(ip));
+    } catch {}
+  }
+  return keys;
+}

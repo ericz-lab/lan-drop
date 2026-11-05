@@ -1,5 +1,6 @@
 // LAN Drop's service: the page, the room socket and file relay, on every interface.
 import { join } from "node:path";
+import { egressKeys } from "./net.ts";
 import { createApp } from "./server.ts";
 
 const port = Number(process.env.PORT) || 9110;
@@ -8,7 +9,17 @@ const dataDir = process.env.SPACE_APP_DATA_DIR || join(import.meta.dir, "..", "d
 
 if (import.meta.main) {
   const { default: page } = await import("../web/index.html");
+  // Which public addresses are this host's own network, refreshed every ten minutes.
+  let homeKeys: ReadonlySet<string> = new Set();
+  const refreshHome = async () => {
+    homeKeys = await egressKeys(process.env.LANDROP_HOME_IPS ?? "");
+  };
+  await refreshHome();
+  setInterval(() => void refreshHome(), 10 * 60_000);
+  console.log(`home public addresses: ${[...homeKeys].join(", ") || "none found"}`);
+
   const app = createApp({
+    homeKeys: () => homeKeys,
     port,
     spoolDir: join(dataDir, "spool"),
     pin: process.env.LANDROP_PIN,

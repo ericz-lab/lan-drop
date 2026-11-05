@@ -94,6 +94,23 @@ describe("Room", () => {
   });
 });
 
+test("devices on different networks do not see or reach each other", () => {
+  const room = new Room(() => 1);
+  const seen: Record<string, ServerMsg[]> = { a: [], b: [], c: [] };
+  room.join({ id: "peer-aaaa", secret: "secret-aaaaaaaaaaaa", name: "Home A" }, (m) => seen.a!.push(m), "home");
+  room.join({ id: "peer-bbbb", secret: "secret-bbbbbbbbbbbb", name: "Home B" }, (m) => seen.b!.push(m), "home");
+  room.join({ id: "peer-cccc", secret: "secret-cccccccccccc", name: "Cafe" }, (m) => seen.c!.push(m), "net:203.0.113.9");
+  const last = (k: string) => seen[k]!.filter((m) => m.type === "peers" || m.type === "welcome").at(-1)!;
+  const ids = (m: ServerMsg) => ((m as any).peers as { id: string }[]).map((p) => p.id);
+  expect(ids(last("a"))).toEqual(["peer-bbbb"]);
+  expect(ids(last("c"))).toEqual([]);
+  expect(code(() => room.offer("peer-cccc", "peer-aaaa", [{ name: "x", size: 1 }]))).toBe("not_same_network");
+  expect(code(() => room.text("peer-aaaa", "peer-cccc", "hi"))).toBe("not_same_network");
+  // The phone comes home: it now sees the others.
+  room.join({ id: "peer-cccc", secret: "secret-cccccccccccc", name: "Cafe" }, (m) => seen.c!.push(m), "home");
+  expect(ids(last("c")).sort()).toEqual(["peer-aaaa", "peer-bbbb"]);
+});
+
 test("cleanFileName", () => {
   expect(cleanFileName("C:\\Users\\x\\a.txt")).toBe("a.txt");
   expect(cleanFileName("..")).toBe("file");
