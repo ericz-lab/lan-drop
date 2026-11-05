@@ -158,13 +158,54 @@ function errorText(code: string): string {
 
 // ---------- connection ----------
 
+let connState: ConnState = "connecting";
+function renderConn(): void {
+  const s = connState;
+  const dot = $("#connDot");
+  const word = $("#connWord");
+  dot.className = "dot" + (s === "online" ? "" : s === "connecting" ? " wait" : " bad");
+  word.dataset.i18n = s === "online" ? "conn_ok" : s === "connecting" ? "conn_wait" : "conn_lost";
+  word.textContent = t(word.dataset.i18n as Key) + (s === "online" && client.bytes ? ` · ${t("direct")}` : "");
+  word.title = s === "online" && client.bytes ? t("directHint") : "";
+}
+
+/** A file link on the direct address when the page found it, else on the page's own. */
+const byteUrl = (u: string) => (client.bytes ? new URL(u, client.bytes).href : u);
+
+/**
+ * Opened through the router, the page asks the server for its direct https address on the LAN
+ * and tries it in the background. When it answers (this device is at home), file bytes go there;
+ * the page itself stays where it is.
+ */
+let probing = false;
+async function probeDirect(): Promise<void> {
+  if (probing) return;
+  probing = true;
+  let found: string | null = null;
+  try {
+    const info = await (await fetch("api/info", { cache: "no-store" })).json();
+    if (info.direct && new URL(info.direct).origin !== location.origin) {
+      const ping = await fetch(new URL("api/ping", info.direct), { cache: "no-store", signal: AbortSignal.timeout(3000) });
+      const body = await ping.json();
+      if (body.instance === info.instance) found = info.direct;
+    }
+  } catch {}
+  probing = false;
+  setDirect(found);
+}
+function setDirect(url: string | null): void {
+  if (client.bytes === url) return;
+  client.bytes = url;
+  joinKey = "";
+  renderJoin();
+  renderConn();
+  renderTransfers();
+}
+
 const client = new Client(ident, kind, {
   state(s: ConnState, detail?: string) {
-    const dot = $("#connDot");
-    const word = $("#connWord");
-    dot.className = "dot" + (s === "online" ? "" : s === "connecting" ? " wait" : " bad");
-    word.dataset.i18n = s === "online" ? "conn_ok" : s === "connecting" ? "conn_wait" : "conn_lost";
-    word.textContent = t(word.dataset.i18n as Key);
+    connState = s;
+    renderConn();
     if (s === "reconnecting" && state.view !== "pin" && state.view !== "replaced") setView("error");
     if (s === "replaced") setView("replaced");
     if (s === "pin") showPin(detail === "pin_locked" ? "pinLocked" : "pinWrong");
@@ -329,7 +370,7 @@ const SAVE_GAP_MS = 900;
 
 function startDownload(url: string, name: string): void {
   const a = document.createElement("a");
-  a.href = url;
+  a.href = byteUrl(url);
   a.download = name;
   a.rel = "noopener";
   document.body.appendChild(a);
@@ -403,6 +444,7 @@ function renderMe(): void {
 
 function renderAll(): void {
   renderJoin();
+  renderConn();
   renderCount();
   renderIncoming();
   renderPick();
@@ -431,9 +473,11 @@ function renderJoin(): void {
   const lan = state.lanUrls[0];
   const alt = !!lan && state.home && url !== lan;
   const viaDomain = !!lan && new URL(lan).origin !== location.origin;
-  $("#lanBanner").hidden = !(viaDomain && state.home);
+  // Bytes already go straight over the LAN: nothing to switch to.
+  const direct = !!client.bytes;
+  $("#lanBanner").hidden = direct || !(viaDomain && state.home);
   if (lan) $<HTMLAnchorElement>("#lanSwitch").href = `${lan}?lang=${lang}`;
-  $("#lanAlt").hidden = !alt;
+  $("#lanAlt").hidden = direct || !alt;
   if (alt) $("#lanAltUrl").textContent = lan.replace(/\/$/, "");
   for (const el of $$("[data-qr]")) el.innerHTML = url ? qrSvg(url) : `<p class="muted small">${esc(t("joinNoAddr"))}</p>`;
   for (const el of $$("[data-addr]")) {
@@ -586,7 +630,7 @@ function renderTransfers(): void {
         status === "waiting" ? `<p class="tr-note">${esc(t("waitingFor"))}</p>` : status === "failed" && tr.error ? `<p class="tr-note">${esc(errorText(tr.error))}</p>` : "";
       const canRetry = status === "failed" && sent && !!state.local.get(tr.id)?.[f.idx];
       const acts = [
-        status === "done" && !sent && f.url ? `<a class="btn btn-secondary btn-sm" href="${esc(f.url)}" download="${esc(f.name)}">${icon("i-save")}<span class="lbl">${esc(t("save"))}</span></a>` : "",
+        status === "done" && !sent && f.url ? `<a class="btn btn-secondary btn-sm" href="${esc(byteUrl(f.url))}" download="${esc(f.name)}">${icon("i-save")}<span class="lbl">${esc(t("save"))}</span></a>` : "",
         canRetry ? `<button class="btn btn-secondary btn-sm" type="button" data-act="retry" data-tid="${tr.id}" data-idx="${f.idx}">${icon("i-retry")}<span>${esc(t("retry"))}</span></button>` : "",
         sent && (tr.state === "offered" || tr.state === "accepted") && f.idx === 0 ? `<button class="btn btn-ghost btn-sm btn-icon" type="button" data-act="cancel" data-tid="${tr.id}" aria-label="${esc(t("cancelTransfer"))}" title="${esc(t("cancelTransfer"))}">${icon("i-x")}</button>` : "",
       ].join("");
@@ -878,9 +922,16 @@ $("#pinForm").addEventListener("submit", (e) => {
 
 // Come back at once when the phone wakes or the network returns.
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) client.wake();
+  if (!document.hidden) {
+    client.wake();
+    void probeDirect();
+  }
 });
-window.addEventListener("online", () => client.wake());
+window.addEventListener("online", () => {
+  client.wake();
+  void probeDirect();
+});
+client.onDirectLost = () => setDirect(null);
 
 // ---------- start ----------
 
@@ -905,4 +956,7 @@ for (const p of $$("[data-view-part]")) p.hidden = p.dataset.viewPart !== "loadi
   if (pinRequired && !saved) return showPin("pinBody");
   if (saved) client.pin = saved;
   client.connect();
+  void probeDirect();
+  // Try again now and then: a device that came home, a server that restarted.
+  setInterval(() => void probeDirect(), 2 * 60_000);
 })();

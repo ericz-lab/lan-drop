@@ -11,7 +11,13 @@ let base = "";
 
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), "lan-drop-"));
-  const app = createApp({ port: 0, spoolDir: dir, pin: "4321" });
+  const app = createApp({
+    port: 0,
+    spoolDir: dir,
+    pin: "4321",
+    directUrl: "https://lan.example.org:9111/",
+    pageOrigins: ["https://lan-drop.example.org"],
+  });
   await app.spool.init();
   server = Bun.serve({
     hostname: "127.0.0.1",
@@ -108,6 +114,39 @@ test("loopback needs no PIN; info says so", async () => {
   const via = await (await fetch(`${base}/api/info`, { headers: { "x-forwarded-host": "lan-drop.example.org", "cf-connecting-ip": "203.0.113.9" } })).json();
   expect(via.joinUrls[0]).toBe("https://lan-drop.example.org/");
   expect(via.home).toBe(false);
+  // Through the router the page learns the direct address and the instance a ping must match.
+  expect(via.direct).toBe("https://lan.example.org:9111/");
+  expect(info.direct).toBeNull();
+  const ping = await (await fetch(`${base}/api/ping`)).json();
+  expect(ping.instance).toBe(via.instance);
+});
+
+test("a listed page origin may send bytes cross-origin; another may not", async () => {
+  const page = "https://lan-drop.example.org";
+  const pre = await fetch(`${base}/api/transfers/abc/files/0`, {
+    method: "OPTIONS",
+    headers: { origin: page, "access-control-request-method": "PUT", "access-control-request-private-network": "true" },
+  });
+  expect(pre.status).toBe(204);
+  expect(pre.headers.get("access-control-allow-origin")).toBe(page);
+  expect(pre.headers.get("access-control-allow-headers")).toContain("x-peer-secret");
+  expect(pre.headers.get("access-control-allow-private-network")).toBe("true");
+
+  const ping = await fetch(`${base}/api/ping`, { headers: { origin: page } });
+  expect(ping.headers.get("access-control-allow-origin")).toBe(page);
+  const other = await fetch(`${base}/api/ping`, { headers: { origin: "https://evil.example" } });
+  expect(other.headers.get("access-control-allow-origin")).toBeNull();
+
+  const headers = { "x-peer-id": "dev-cccccccc", "x-peer-secret": "secret-cccccccccccccccc" };
+  const evil = await fetch(`${base}/api/transfers/abc/files/0`, { method: "PUT", headers: { ...headers, origin: "https://evil.example" }, body: "x" });
+  expect(evil.status).toBe(403);
+  // The listed page passes the origin check and meets the room's own (no such device here).
+  const ok = await fetch(`${base}/api/transfers/abc/files/0`, { method: "PUT", headers: { ...headers, origin: page }, body: "x" });
+  expect(ok.status).toBe(401);
+  expect(ok.headers.get("access-control-allow-origin")).toBe(page);
+  // The socket stays same-origin only.
+  const ws = await fetch(`${base}/api/ws`, { headers: { origin: page, upgrade: "websocket" } });
+  expect(ws.status).toBe(403);
 });
 
 test("contentDisposition keeps an ASCII fallback", () => {

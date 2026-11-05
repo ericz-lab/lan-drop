@@ -24,6 +24,13 @@ export class Client {
   private waiting = new Map<string, { res: (id: string) => void; rej: (e: Error) => void }>();
   pin = "";
   stopped = false;
+  /**
+   * The direct https address of the server on the LAN, when the page found it: file bytes go there
+   * instead of through the tunnel. Null sends them to the page's own address.
+   */
+  bytes: string | null = null;
+  /** Called when the direct address stopped answering mid-upload (the device left home). */
+  onDirectLost: () => void = () => {};
 
   constructor(
     private ident: Identity,
@@ -154,11 +161,11 @@ export class Client {
   upload(transferId: string, idx: number, file: File, progress: (sent: number) => void): { done: Promise<void>; abort(): void } {
     let xhr: XMLHttpRequest | null = null;
     let aborted = false;
-    const piece = (offset: number, blob: Blob) =>
+    const piece = (offset: number, blob: Blob, base: string) =>
       new Promise<number>((res, rej) => {
         const x = new XMLHttpRequest();
         xhr = x;
-        x.open("PUT", new URL(`api/transfers/${transferId}/files/${idx}?offset=${offset}`, location.href));
+        x.open("PUT", new URL(`api/transfers/${transferId}/files/${idx}?offset=${offset}`, base));
         x.setRequestHeader("x-peer-id", this.ident.id);
         x.setRequestHeader("x-peer-secret", this.ident.secret);
         x.upload.onprogress = (e) => progress(offset + e.loaded);
@@ -179,7 +186,19 @@ export class Client {
       do {
         if (aborted) throw new Error("aborted");
         const end = Math.min(file.size, offset + PIECE);
-        offset = await piece(offset, file.slice(offset, end));
+        const blob = file.slice(offset, end);
+        const direct = this.bytes;
+        try {
+          offset = await piece(offset, blob, direct ?? location.href);
+        } catch (e) {
+          // The direct address went away: send this piece again the long way.
+          if (!direct || aborted || (e as Error).message !== "network") throw e;
+          if (this.bytes === direct) {
+            this.bytes = null;
+            this.onDirectLost();
+          }
+          offset = await piece(offset, blob, location.href);
+        }
       } while (offset < file.size);
     })();
     return {

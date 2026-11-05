@@ -15,6 +15,14 @@ export interface Options {
   publicUrl?: string;
   /** The host's own public addresses (src/net.ts egressKeys): devices behind them are home. */
   homeKeys?: () => ReadonlySet<string>;
+  /**
+   * The https address of this server on the LAN (a name that resolves to the LAN address, with a
+   * real certificate), e.g. https://lan.example.org:9111/. A page opened through the router probes
+   * it and, when it answers, moves file bytes there instead of through the tunnel.
+   */
+  directUrl?: string;
+  /** Page origins (the router's https names) that may send and fetch file bytes cross-origin. */
+  pageOrigins?: string[];
   now?: () => number;
 }
 
@@ -75,6 +83,9 @@ function sameOrigin(req: Request): boolean {
   }
 }
 
+/** File-byte routes a page on another origin may use once it found the direct address. */
+const BYTE_ROUTE = /^\/api\/(ping|zip|download\/|transfers\/)/;
+
 /** RFC 6266 attachment header that survives non-ASCII names. */
 export function contentDisposition(name: string): string {
   const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
@@ -87,6 +98,14 @@ export function createApp(opts: Options) {
   const spool = new Spool(opts.spoolDir);
   const gate = new PinGate(now);
   const pin = (opts.pin ?? "").trim();
+  // Tells a probing page it reached this very server, not another box at the same address.
+  const instance = crypto.randomUUID();
+  const pageOrigins = new Set((opts.pageOrigins ?? []).map((o) => o.replace(/\/$/, "")));
+  const allowedOrigin = (req: Request) => {
+    const o = req.headers.get("origin");
+    return o && pageOrigins.has(o) ? o : null;
+  };
+  const allowed = (req: Request) => sameOrigin(req) || allowedOrigin(req) !== null;
 
   const homeKeys = opts.homeKeys ?? (() => new Set<string>());
   // Through the router (behind the space's login) the device is signed in; the PIN guards the LAN port.
@@ -108,7 +127,7 @@ export function createApp(opts: Options) {
    * last one ended. Pieces keep each request under the 100 MB a Cloudflare tunnel allows.
    */
   async function upload(req: Request, id: string, idxText: string, offsetText: string | null): Promise<Response> {
-    if (!sameOrigin(req)) return fail("forbidden", 403);
+    if (!allowed(req)) return fail("forbidden", 403);
     const idx = Number(idxText);
     const offset = Number(offsetText ?? 0);
     if (!Number.isSafeInteger(offset) || offset < 0) return fail("bad_offset", 400);
@@ -255,13 +274,14 @@ export function createApp(opts: Options) {
     }
   }
 
-  const fetch = async (req: Request, server: Server<SocketData>): Promise<Response | undefined> => {
+  const route = async (req: Request, server: Server<SocketData>): Promise<Response | undefined> => {
     const ip = server.requestIP(req)?.address ?? "";
     if (!isPrivateOrLoopback(ip)) return new Response("LAN only", { status: 403 });
     const url = new URL(req.url);
     const path = url.pathname;
 
     if (path === "/healthz") return new Response("ok");
+    if (path === "/api/ping" && req.method === "GET") return json({ ok: true, instance });
     if (path === "/api/ws") {
       if (!sameOrigin(req)) return fail("forbidden", 403);
       return server.upgrade(req, { data: { ip, net: netOf(ip, req) } }) ? undefined : fail("upgrade_failed", 400);
@@ -276,6 +296,9 @@ export function createApp(opts: Options) {
         lanUrls: joinUrls(opts.port, opts.publicUrl),
         pinRequired: pinRequired(ip),
         home: netOf(ip, req) === HOME,
+        // Only a page through the router needs it: on the LAN the page is direct already.
+        direct: host && opts.directUrl ? opts.directUrl : null,
+        instance,
       });
     }
     let m = path.match(/^\/api\/transfers\/([a-f0-9]+)\/files\/(\d+)$/);
@@ -284,6 +307,27 @@ export function createApp(opts: Options) {
     m = path.match(/^\/api\/download\/([a-f0-9]+)(?:\/.*)?$/);
     if (m && req.method === "GET") return download(m[1]!);
     return undefined;
+  };
+
+  /** The routes, plus CORS for a page on a listed origin that moved its file bytes here. */
+  const fetch = async (req: Request, server: Server<SocketData>): Promise<Response | undefined> => {
+    const origin = allowedOrigin(req);
+    const path = new URL(req.url).pathname;
+    if (!origin || !BYTE_ROUTE.test(path)) return route(req, server);
+    const cors: Record<string, string> = {
+      "access-control-allow-origin": origin,
+      "access-control-allow-methods": "GET, PUT, POST, OPTIONS",
+      "access-control-allow-headers": "content-type, x-peer-id, x-peer-secret",
+      "access-control-max-age": "600",
+      // Chrome asks before a public page reaches a private address.
+      "access-control-allow-private-network": "true",
+      vary: "Origin",
+    };
+    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+    const res = await route(req, server);
+    if (!res) return res;
+    for (const [k, v] of Object.entries(cors)) res.headers.set(k, v);
+    return res;
   };
 
   return {
