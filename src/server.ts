@@ -3,6 +3,8 @@ import type { Server, ServerWebSocket } from "bun";
 import { HOME, isLoopback, isPrivateOrLoopback, joinUrls, networkOf } from "./net.ts";
 import { Room, RoomError, type ServerMsg } from "./room.ts";
 import { Spool } from "./spool.ts";
+import { uniqueNames, zipSize, zipStream } from "./zip.ts";
+import { cleanFileName } from "./room.ts";
 
 export interface Options {
   port: number;
@@ -175,6 +177,28 @@ export function createApp(opts: Options) {
     });
   }
 
+  /** Several received files as one ZIP: one download instead of many a browser may block. */
+  function zip(keysText: string, nameText: string | null): Response {
+    const keys = keysText.split(",").filter((k) => /^[a-f0-9]+$/.test(k)).slice(0, 1000);
+    const hits = keys.map((k) => room.download(k)).filter((h) => h !== null);
+    if (hits.length === 0 || hits.length !== keys.length) return fail("gone", 404);
+    const names = uniqueNames(hits.map((h) => h.file.name));
+    const entries = hits.map((h, i) => ({ name: names[i]!, size: h.file.size, path: spool.path(h.transfer.id, h.file.idx) }));
+    const size = zipSize(entries);
+    if (size === null) return fail("too_big", 413);
+    let name = cleanFileName(nameText ?? "lan-drop.zip");
+    if (!/\.zip$/i.test(name)) name += ".zip";
+    return new Response(zipStream(entries), {
+      headers: {
+        "content-type": "application/zip",
+        "content-disposition": contentDisposition(name),
+        "content-length": String(size),
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  }
+
   function onMessage(ws: ServerWebSocket<SocketData>, raw: string | Buffer) {
     let msg: Record<string, unknown>;
     try {
@@ -256,6 +280,7 @@ export function createApp(opts: Options) {
     }
     let m = path.match(/^\/api\/transfers\/([a-f0-9]+)\/files\/(\d+)$/);
     if (m && (req.method === "PUT" || req.method === "POST")) return upload(req, m[1]!, m[2]!, url.searchParams.get("offset"));
+    if (path === "/api/zip" && req.method === "GET") return zip(url.searchParams.get("keys") ?? "", url.searchParams.get("name"));
     m = path.match(/^\/api\/download\/([a-f0-9]+)(?:\/.*)?$/);
     if (m && req.method === "GET") return download(m[1]!);
     return undefined;

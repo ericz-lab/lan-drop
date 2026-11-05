@@ -104,7 +104,8 @@ const state = {
   uploading: new Set<string>(),
   sent: new Map<string, number>(),
   rates: new Map<string, Rate>(),
-  saved: new Set<string>(),
+  /** Received transfers already saved, or already finished when this page opened: never saved again by themselves. */
+  handled: new Set<string>(),
   pending: null as File[] | null,
   filter: "all" as "all" | "sent" | "received",
   view: "loading" as "loading" | "filled" | "empty" | "error" | "replaced" | "pin",
@@ -172,7 +173,11 @@ const client = new Client(ident, kind, {
     state.me = self;
     state.peers = peers;
     for (const p of peers) state.names.set(p.id, p);
-    for (const tr of transfers) state.transfers.set(tr.id, tr);
+    for (const tr of transfers) {
+      state.transfers.set(tr.id, tr);
+      // Finished before this page opened (a refresh, another visit): shown, not downloaded again.
+      if (tr.state !== "offered" && tr.state !== "accepted") state.handled.add(tr.id);
+    }
     $("#pinscreen").hidden = true;
     $("#shell").hidden = false;
     $("#me").hidden = false;
@@ -266,19 +271,38 @@ const uploads = new Map<string, { abort(): void }>();
 function afterTransfer(tr: TransferView): void {
   if (tr.from === ident.id && tr.state === "accepted") void pump(tr);
   if (tr.state === "cancelled" || tr.state === "declined") uploads.get(tr.id)?.abort();
-  // Received files save themselves on a computer; a phone saves on a tap.
-  if (tr.to === ident.id && !touch) {
-    for (const f of tr.files) {
-      const key = `${tr.id}:${f.idx}`;
-      if (f.url && !state.saved.has(key)) {
-        state.saved.add(key);
-        save(f.url, f.name);
-      }
-    }
+  // A finished batch saves itself once on a computer, as one file or one ZIP; a phone saves on a tap.
+  if (tr.to === ident.id && tr.state === "done" && !state.handled.has(tr.id)) {
+    state.handled.add(tr.id);
+    if (!touch) saveFiles(tr.files.filter((f) => f.url).map((f) => ({ url: f.url!, name: f.name, size: f.size })));
   }
   if (tr.to === ident.id && tr.state === "offered" && document.hidden && "Notification" in window && Notification.permission === "granted") {
     new Notification(t("title"), { body: incomingTitle(tr) });
   }
+}
+
+/** The download key inside a file's link (api/download/<key>/<name>). */
+const keyOf = (url: string) => url.split("/")[2] ?? "";
+
+/** Zip archives stay under 4 GiB; a larger batch downloads file by file. */
+const ZIP_LIMIT = 4 * 1024 ** 3 - 64 * 1024 * 1024;
+
+function zipName(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${t("title")} ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}.zip`;
+}
+
+/** Saves files as one download: the file itself, or a ZIP of several. */
+function saveFiles(files: { url: string; name: string; size: number }[]): void {
+  if (files.length === 0) return;
+  const total = files.reduce((s, f) => s + f.size, 0);
+  if (files.length === 1 || total > ZIP_LIMIT) {
+    for (const f of files) save(f.url, f.name);
+    return;
+  }
+  const name = zipName();
+  save(`api/zip?keys=${files.map((f) => keyOf(f.url)).join(",")}&name=${encodeURIComponent(name)}`, name);
 }
 
 /**
@@ -527,11 +551,11 @@ function fileStatus(tr: TransferView, f: TransferView["files"][number], sent: bo
 }
 
 /** Every received file that can be saved, oldest first. */
-function receivedReady(): { key: string; url: string; name: string }[] {
-  const out: { key: string; url: string; name: string; at: number }[] = [];
+function receivedReady(): { url: string; name: string; size: number }[] {
+  const out: { url: string; name: string; size: number; at: number }[] = [];
   for (const tr of state.transfers.values()) {
     if (tr.to !== ident.id) continue;
-    for (const f of tr.files) if (f.url) out.push({ key: `${tr.id}:${f.idx}`, url: f.url, name: f.name, at: tr.createdAt + f.idx / 1000 });
+    for (const f of tr.files) if (f.url) out.push({ url: f.url, name: f.name, size: f.size, at: tr.createdAt + f.idx / 1000 });
   }
   return out.sort((a, b) => a.at - b.at);
 }
@@ -716,10 +740,7 @@ $("#transfers").addEventListener("click", (e) => {
     return;
   }
   if (el.closest("#saveAll")) {
-    for (const f of receivedReady()) {
-      state.saved.add(f.key);
-      save(f.url, f.name);
-    }
+    saveFiles(receivedReady());
     return;
   }
   const copyBtn = el.closest<HTMLElement>("[data-copy-text]");
