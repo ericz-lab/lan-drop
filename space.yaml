@@ -26,3 +26,6 @@ service:
 # --frozen-lockfile; a failure keeps the running service (ai-space docs/app-spec.md#deploy).
 deploy:
   check: [bun run typecheck, bun test]
+
+# Nothing here outlives a transfer (the spool is emptied at start and an hour after each transfer).
+backup: false
