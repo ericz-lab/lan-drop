@@ -1,0 +1,48 @@
+# The installation package's declaration (ai-space docs/app-packages.md, docs/app-catalog.md).
+# space.yaml stays spec 1 for the git deployment; the components here (everything but spec,
+# version, requires, offline, launch and build) must equal its own: src/release.test.ts checks.
+# Release: raise `version` (and package.json's), then tag v<version>; .github/workflows/release.yml
+# builds, signs and publishes. `bun run pack` builds the same packages locally.
+
+spec: 2
+name: lan-drop
+version: 0.1.0
+title: LAN Drop
+description: Send files and text between phones and computers on the same Wi-Fi. Open the page on each device (or scan its QR code); devices see each other at once, and every transfer waits for the receiver to accept.
+icon: icon.svg
+status: active
+repo: https://github.com/ericz-lab/lan-drop.git
+i18n:
+  zh:
+    title: 局域网快传
+    description: 在同一个 Wi-Fi 里的手机和电脑之间互传文件和文字。每台设备打开这个页面（或扫二维码），就能互相看到；每次发送都要对方点"接收"。
+
+requires:
+  spaceApi: 1
+  bun: 1.3.0
+
+offline:
+  features:
+    - Files and text between devices on the same local network
+  online:
+    - Opening the page from outside the local network, through the space's domain
+
+# The bundle `bun run build` makes. ai-space hands over a loopback PORT for its gateway, a new one
+# at each start; the service also listens on every interface at LANDROP_LAN_PORT (default 9110),
+# so phones on the Wi-Fi keep one address. Background: the room lives in the process's memory and
+# phones hold a socket open.
+launch:
+  kind: process
+  runtime: bun
+  entry: dist/index.js
+  mode: background
+  health: /healthz
+
+# How a checkout becomes the package: in a scratch copy, never in this tree.
+build:
+  install: bun install --frozen-lockfile
+  run: bun run build
+  include: [dist, icon.svg]
+
+# Nothing here outlives a transfer (the spool is emptied at start and an hour after each transfer).
+backup: false

@@ -10,7 +10,9 @@
     "start": "bun src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "check": "bun install && bun run typecheck && bun test"
+    "check": "bun install && bun run typecheck && bun test",
+    "pack": "bun scripts/pack.ts",
+    "build": "rm -rf dist && bun build src/index.ts --target bun --root . --entry-naming \"[name].[ext]\" --outdir dist"
   },
   "devDependencies": {
     "@types/bun": "^1.3.0",
