@@ -2,6 +2,8 @@
 
 Send files and text between phones and computers on the same Wi-Fi, in the browser.
 
+Install it on an [ai-space](https://github.com/ericz-lab/ai-space) Space from the app catalog: `space app install lan-drop` (or the panel's catalog). The Space must run on a machine on the same Wi-Fi as the devices, with port 9110 open to the LAN (`LANDROP_LAN_PORT` in the app's `.env` changes it).
+
 1. Open the app's LAN address on each device (the page shows it with a QR code), e.g. `http://192.168.1.20:9110/`.
 2. Devices that have the page open appear to each other at once.
 3. Tap a device (or drop files on it) to send; the other side accepts or declines. Received files download from the transfer list. "Text" sends a message or a link.
