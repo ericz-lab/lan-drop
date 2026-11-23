@@ -21,3 +21,7 @@ LANDROP_PAGE_ORIGINS=https://lan-drop.example.org
 At home the page then sends and fetches file bytes over the LAN without leaving the domain page (Chrome may ask once to allow access to the local network); away from home it keeps using the domain.
 
 Files travel through the machine that runs the app and are deleted an hour after a transfer ends.
+
+## License
+
+[MIT](LICENSE)

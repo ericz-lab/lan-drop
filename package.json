@@ -2,6 +2,7 @@
   "name": "lan-drop",
   "version": "0.1.0",
   "description": "Send files and text between devices on the same local network, in the browser. An ai-space app.",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {

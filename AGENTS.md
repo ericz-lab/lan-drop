@@ -52,7 +52,7 @@ bun run check            # install, typecheck, tests
 
 - Runs on the space of the machine that sits on the home network (it must share the Wi-Fi with the devices).
 - Deploy: `git push deploy main` to the bare repository `~/lan-drop.git` on that host; its `post-receive` hook (`deploy/post-receive`) runs `space app deploy lan-drop` (checkout, `bun install --frozen-lockfile`, typecheck, tests, restart only when they pass).
-- Source: GitHub `ericz-lab/lan-drop` (private, remote `origin`). After a deploy, `git push origin main`.
+- Source: GitHub `ericz-lab/lan-drop` (public, MIT, remote `origin`). After a deploy, `git push origin main`.
 - A new app's first deploy also needs `space app sync` on that host, which registers the directory.
 - Keep `bun.lock` at `"lockfileVersion": 1` while a host runs Bun 1.3.
 - The port (9110) must be open on the host's firewall for the LAN.
