@@ -112,6 +112,12 @@ const state = {
   joinUrls: [] as string[],
   lanUrls: [] as string[],
   home: true,
+  /**
+   * The server offers a direct https address on the LAN. The page then tries it by itself and sends
+   * bytes there when it answers, so there is nothing to switch to: when it does not answer, the
+   * plain LAN address of the same machine cannot be reached either (same public IP, another subnet).
+   */
+  directOffered: false,
   /** Opened through the space's router (the domain), not on a LAN address. */
   viaRouter: false,
 };
@@ -475,8 +481,8 @@ function renderJoin(): void {
   const lan = state.lanUrls[0];
   const alt = !!lan && state.home && url !== lan;
   const viaDomain = !!lan && state.viaRouter;
-  // Bytes already go straight over the LAN: nothing to switch to.
-  const direct = !!client.bytes;
+  // Bytes already go straight over the LAN, or the page finds the LAN by itself: nothing to switch to.
+  const direct = !!client.bytes || state.directOffered;
   $("#lanBanner").hidden = direct || !(viaDomain && state.home);
   if (lan) $<HTMLAnchorElement>("#lanSwitch").href = `${lan}?lang=${lang}`;
   $("#lanAlt").hidden = direct || !alt;
@@ -950,6 +956,7 @@ for (const p of $$("[data-view-part]")) p.hidden = p.dataset.viewPart !== "loadi
     state.lanUrls = info.lanUrls ?? [];
     state.home = info.home !== false;
     state.viaRouter = info.viaRouter === true;
+    state.directOffered = !!info.direct && new URL(info.direct).origin !== location.origin;
     pinRequired = !!info.pinRequired;
   } catch {}
   // Through the space's router the page's own address is the one to share when no LAN address is known.
