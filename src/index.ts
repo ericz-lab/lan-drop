@@ -62,7 +62,7 @@ if (import.meta.main) {
       if (res === undefined && path === "/api/ws") return undefined as unknown as Response;
       // A bundled release (`bun run build`) serves its hashed pictures from beside the bundle; from source they are routes of the page.
       if ((!res || res.status === 404) && req.method === "GET" && /^\/[A-Za-z0-9_-]+-[a-z0-9]{8}\.(png|svg|webp|ico|jpg)$/.test(path)) {
-        const file = Bun.file(new URL(`.${path}`, import.meta.url).pathname);
+        const file = Bun.file(Bun.fileURLToPath(new URL(`.${path}`, import.meta.url)));
         if (await file.exists()) return new Response(file, { headers: { "cache-control": "max-age=31536000, immutable" } });
       }
       return res ?? new Response("Not found", { status: 404 });

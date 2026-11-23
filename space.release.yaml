@@ -6,7 +6,7 @@
 
 spec: 2
 name: lan-drop
-version: 0.1.0
+version: 0.1.1
 title: LAN Drop
 description: Send files and text between phones and computers on the same Wi-Fi. Open the page on each device (or scan its QR code); devices see each other at once, and every transfer waits for the receiver to accept.
 icon: icon.svg
